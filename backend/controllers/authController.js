@@ -113,7 +113,7 @@ exports.updateProfile = async (req, res) => {
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).populate('following', 'name avatar bio onlineStatus');
     
     // Recalculate counts for accuracy
     const friendsCount = await Notification.countDocuments({
@@ -130,9 +130,15 @@ exports.getMe = async (req, res) => {
     userData.friendsCount = friendsCount;
     userData.followingCount = followingCount;
 
+    // Get followers details
+    const followers = await User.find({ following: req.user.id }).select('name avatar bio onlineStatus');
+
     res.json({
       success: true,
-      data: userData,
+      data: {
+        ...userData,
+        followers
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -244,12 +250,36 @@ exports.unfollowUser = async (req, res) => {
   }
 };
 
+// @desc    Change password
+// @route   PUT /api/auth/change-password
+// @access  Private
+exports.changePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const user = await User.findById(req.user.id).select('+password');
+
+    if (!user || !(await user.matchPassword(oldPassword))) {
+      return res.status(401).json({ success: false, message: 'Invalid current password' });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ success: true, message: 'Password updated successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // @desc    Get user by ID
 // @route   GET /api/auth/users/:id
 // @access  Private
 exports.getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('-password');
+    const user = await User.findById(req.params.id)
+      .select('-password')
+      .populate('following', 'name avatar bio onlineStatus');
+      
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
