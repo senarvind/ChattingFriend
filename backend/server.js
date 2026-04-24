@@ -68,12 +68,14 @@ const authRoutes = require('./routes/authRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const storyRoutes = require('./routes/storyRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const postRoutes = require('./routes/postRoutes');
 
 // Mount routers
 app.use('/api/auth', authRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/stories', storyRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/posts', postRoutes);
 
 app.get('/', (req, res) => {
   res.send('API is running...');

@@ -7,7 +7,7 @@ const Conversation = require('../models/Conversation');
 exports.sendMessage = async (req, res) => {
   console.log('Incoming Message Request:', req.body);
   try {
-    const { recipientId, text } = req.body;
+    const { recipientId, text, imageUrl, fileUrl } = req.body;
     const senderId = req.user.id;
     
     if (!recipientId) {
@@ -15,29 +15,47 @@ exports.sendMessage = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Recipient ID is required' });
     }
 
-    // Check if conversation exists
-    let conversation = await Conversation.findOne({
-      participants: { $all: [senderId, recipientId] },
-    });
+    let conversation;
 
-    if (!conversation) {
-      conversation = await Conversation.create({
-        participants: [senderId, recipientId],
+    // Check if recipientId is a Conversation ID (for groups)
+    try {
+      conversation = await Conversation.findById(recipientId);
+    } catch (err) {
+      // Not a valid ObjectId or not a conversation, continue to 1-on-1 check
+    }
+
+    // If not a group conversation, look for or create 1-on-1 conversation
+    if (!conversation || !conversation.isGroup) {
+      conversation = await Conversation.findOne({
+        isGroup: { $ne: true },
+        participants: { $all: [senderId, recipientId] },
       });
+
+      if (!conversation) {
+        conversation = await Conversation.create({
+          participants: [senderId, recipientId],
+        });
+      }
     }
 
     const message = await Message.create({
       conversationId: conversation._id,
       sender: senderId,
       text,
+      imageUrl,
+      fileUrl,
     });
 
     // Update last message in conversation
     conversation.lastMessage = message._id;
     await conversation.save();
 
-    res.status(201).json(message);
+    // Populate sender for immediate use in frontend
+    const populatedMessage = await Message.findById(message._id).populate('sender', 'name avatar');
+
+    res.status(201).json(populatedMessage);
   } catch (error) {
+    console.error('Send Message Error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -49,7 +67,9 @@ exports.getMessages = async (req, res) => {
   try {
     const messages = await Message.find({
       conversationId: req.params.conversationId,
-    }).sort('createdAt');
+    })
+    .populate('sender', 'name avatar')
+    .sort('createdAt');
 
     res.json(messages);
   } catch (error) {
@@ -85,7 +105,7 @@ exports.getConversationWithUser = async (req, res) => {
     // Find conversation
     let conversation = await Conversation.findOne({
       participants: { $all: [senderId, recipientId] },
-    });
+    }).populate('participants', 'name avatar onlineStatus');
 
     if (!conversation) {
       // Return empty messages if it's a new conversation (don't create yet to save DB space)
@@ -163,6 +183,85 @@ exports.getConversationById = async (req, res) => {
     }
 
     res.json(conversation);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Create a group conversation
+// @route   POST /api/messages/group
+// @access  Private
+exports.createGroup = async (req, res) => {
+  try {
+    const { name, image, participants } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ success: false, message: 'Group name is required' });
+    }
+
+    // Ensure participants includes the creator
+    const allParticipants = Array.from(new Set([...(participants || []), req.user.id]));
+
+    const conversation = await Conversation.create({
+      name,
+      image: image || '',
+      participants: allParticipants,
+      isGroup: true,
+      admin: req.user.id
+    });
+
+    const populatedConversation = await Conversation.findById(conversation._id)
+      .populate('participants', 'name avatar onlineStatus');
+
+    res.status(201).json({ success: true, data: populatedConversation });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Get all group conversations
+// @route   GET /api/messages/groups
+// @access  Public (or Private, depending on needs)
+exports.getGroups = async (req, res) => {
+  try {
+    const groups = await Conversation.find({ isGroup: true })
+      .populate('participants', 'name avatar')
+      .sort('-createdAt');
+    
+    res.json({ success: true, data: groups });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Add a member to a group
+// @route   PUT /api/messages/group/add
+// @access  Private
+exports.addMember = async (req, res) => {
+  try {
+    const { conversationId, userId } = req.body;
+    
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    if (!conversation.isGroup) {
+      return res.status(400).json({ success: false, message: 'Not a group conversation' });
+    }
+
+    // Check if user is already a member
+    if (conversation.participants.includes(userId)) {
+      return res.status(400).json({ success: false, message: 'User is already a member' });
+    }
+
+    conversation.participants.push(userId);
+    await conversation.save();
+
+    const updatedConversation = await Conversation.findById(conversationId)
+      .populate('participants', 'name avatar onlineStatus');
+
+    res.json({ success: true, data: updatedConversation });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

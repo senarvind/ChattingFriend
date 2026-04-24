@@ -203,7 +203,8 @@ exports.followUser = async (req, res) => {
     }
 
     const currentUser = await User.findById(currentUserId);
-    if (currentUser.following.includes(targetUserId)) {
+    const isAlreadyFollowing = currentUser.following.some(id => id.toString() === targetUserId);
+    if (isAlreadyFollowing) {
       return res.status(400).json({ success: false, message: 'Already following this user' });
     }
 
@@ -231,7 +232,8 @@ exports.unfollowUser = async (req, res) => {
     const currentUserId = req.user.id;
 
     const currentUser = await User.findById(currentUserId);
-    if (!currentUser.following.includes(targetUserId)) {
+    const isFollowing = currentUser.following.some(id => id.toString() === targetUserId);
+    if (!isFollowing) {
       return res.status(400).json({ success: false, message: 'You are not following this user' });
     }
 

@@ -8,10 +8,16 @@ const {
   getConversationById,
   deleteMessage,
   markAsRead,
+  createGroup,
+  getGroups,
+  addMember,
 } = require('../controllers/messageController');
 const { protect } = require('../middleware/authMiddleware');
 
 router.post('/', protect, sendMessage);
+router.post('/group', protect, createGroup);
+router.put('/group/add', protect, addMember);
+router.get('/groups', getGroups); // Publicly accessible to see trending groups
 router.get('/conversations', protect, getConversations);
 router.get('/conversation/:id', protect, getConversationById);
 router.get('/user/:userId', protect, getConversationWithUser);
