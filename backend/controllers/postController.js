@@ -1,18 +1,37 @@
 const Post = require('../models/Post');
 const User = require('../models/User');
+const { cloudinary } = require('../config/cloudinary');
 
 // @desc    Create a post
 // @route   POST /api/posts
 // @access  Private
 exports.createPost = async (req, res) => {
   try {
-    const { image, title } = req.body;
+    let { image, title } = req.body;
+    
+    // Upload image to cloudinary if base64
+    if (image && image.startsWith('data:image')) {
+      const uploadRes = await cloudinary.uploader.upload(image, {
+        folder: 'chat_app/posts',
+      });
+      image = uploadRes.secure_url;
+    }
+
     const post = await Post.create({
       user: req.user.id,
       image,
       title,
     });
-    res.status(201).json({ success: true, data: post });
+
+    const populatedPost = await Post.findById(post._id).populate('user', 'name avatar');
+    
+    // Emit new post event
+    const io = req.app.get('socketio');
+    if (io) {
+      io.emit('new_post', populatedPost);
+    }
+
+    res.status(201).json({ success: true, data: populatedPost });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -56,6 +75,17 @@ exports.toggleLike = async (req, res) => {
     }
 
     await post.save();
+    
+    // Emit like update event
+    const io = req.app.get('socketio');
+    if (io) {
+      io.emit('post_updated', { 
+        postId: post._id, 
+        likes: post.likes, 
+        comments: post.comments 
+      });
+    }
+
     res.json({ success: true, likes: post.likes.length, isLiked: !isLiked });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -105,6 +135,16 @@ exports.addComment = async (req, res) => {
 
     // Populate user details for the new comment before sending back
     await post.populate('comments.user', 'name avatar');
+
+    // Emit comment update event
+    const io = req.app.get('socketio');
+    if (io) {
+      io.emit('post_updated', { 
+        postId: post._id, 
+        likes: post.likes, 
+        comments: post.comments 
+      });
+    }
 
     res.status(201).json({ success: true, data: post.comments });
   } catch (error) {

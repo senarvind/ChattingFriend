@@ -1,11 +1,21 @@
 const Story = require('../models/Story');
+const { cloudinary } = require('../config/cloudinary');
 
 // @desc    Add a story
 // @route   POST /api/stories
 // @access  Private
 exports.addStory = async (req, res) => {
   try {
-    const { imageUrl } = req.body;
+    let { imageUrl } = req.body;
+
+    // Upload story image to cloudinary if base64
+    if (imageUrl && imageUrl.startsWith('data:image')) {
+      const uploadRes = await cloudinary.uploader.upload(imageUrl, {
+        folder: 'chat_app/stories',
+      });
+      imageUrl = uploadRes.secure_url;
+    }
+
     const story = await Story.create({
       user: req.user.id,
       imageUrl,

@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { cloudinary } = require('../config/cloudinary');
 
 // @desc    Send a message
 // @route   POST /api/messages
@@ -7,8 +8,24 @@ const Conversation = require('../models/Conversation');
 exports.sendMessage = async (req, res) => {
   console.log('Incoming Message Request:', req.body);
   try {
-    const { recipientId, text, imageUrl, fileUrl } = req.body;
+    let { recipientId, text, imageUrl, fileUrl } = req.body;
     const senderId = req.user.id;
+
+    // Upload to Cloudinary if base64
+    if (imageUrl && imageUrl.startsWith('data:image')) {
+      const uploadRes = await cloudinary.uploader.upload(imageUrl, {
+        folder: 'chat_app/messages',
+      });
+      imageUrl = uploadRes.secure_url;
+    }
+
+    if (fileUrl && fileUrl.startsWith('data:')) {
+      const uploadRes = await cloudinary.uploader.upload(fileUrl, {
+        folder: 'chat_app/files',
+        resource_type: 'auto',
+      });
+      fileUrl = uploadRes.secure_url;
+    }
     
     if (!recipientId) {
       console.log('Error: Missing recipientId');
@@ -193,7 +210,15 @@ exports.getConversationById = async (req, res) => {
 // @access  Private
 exports.createGroup = async (req, res) => {
   try {
-    const { name, image, participants } = req.body;
+    let { name, image, participants } = req.body;
+    
+    // Upload group image to cloudinary if base64
+    if (image && image.startsWith('data:image')) {
+      const uploadRes = await cloudinary.uploader.upload(image, {
+        folder: 'chat_app/groups',
+      });
+      image = uploadRes.secure_url;
+    }
     
     if (!name) {
       return res.status(400).json({ success: false, message: 'Group name is required' });

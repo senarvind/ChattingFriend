@@ -1,13 +1,15 @@
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const jwt = require('jsonwebtoken');
+const { cloudinary } = require('../config/cloudinary');
 
 // @desc    Register user
 // @route   POST /api/auth/signup
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    let { name, email, password } = req.body;
+    email = email.trim().toLowerCase();
 
     // Check if user exists
     const userExists = await User.findOne({ email });
@@ -16,11 +18,21 @@ exports.register = async (req, res) => {
       return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
+    // Upload avatar to cloudinary if provided
+    let avatarUrl = undefined;
+    if (req.body.avatar && req.body.avatar.startsWith('data:image')) {
+      const uploadRes = await cloudinary.uploader.upload(req.body.avatar, {
+        folder: 'chat_app/avatars',
+      });
+      avatarUrl = uploadRes.secure_url;
+    }
+
     // Create user
     const user = await User.create({
       name,
       email,
       password,
+      avatar: avatarUrl,
     });
 
     if (user) {
@@ -44,10 +56,13 @@ exports.register = async (req, res) => {
 // @access  Public
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+    email = email.trim().toLowerCase();
 
+    console.log('Login attempt for:', email);
     // Check for user email
     const user = await User.findOne({ email }).select('+password');
+    if (!user) console.log('User not found in DB');
 
     if (user && (await user.matchPassword(password))) {
       res.json({
@@ -81,9 +96,18 @@ exports.updateProfile = async (req, res) => {
         }
       }
 
+      // Upload to cloudinary if avatar is base64
+      if (req.body.avatar && req.body.avatar.startsWith('data:image')) {
+        const uploadRes = await cloudinary.uploader.upload(req.body.avatar, {
+          folder: 'chat_app/avatars',
+        });
+        user.avatar = uploadRes.secure_url;
+      } else {
+        user.avatar = req.body.avatar || user.avatar;
+      }
+      
       user.name = req.body.name || user.name;
       user.email = req.body.email || user.email;
-      user.avatar = req.body.avatar || user.avatar;
       user.bio = req.body.bio || user.bio;
 
       const updatedUser = await user.save();
